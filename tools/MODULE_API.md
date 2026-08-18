@@ -5,13 +5,15 @@ Ogni nuova feature è un **modulo autonomo** appeso in fondo allo `<script>`.
 
 ## Regola d'oro
 
-Inserisci il tuo codice **solo** al posto del marcatore:
+Il tuo modulo vive in un **file tutto suo**: `modules/<nome>.js`.
+Non modificare `index.html` a mano: lo genera `node tools/build.mjs`, che inietta
+tutti i `modules/*.js` fra i marcatori `MODULES:BEGIN` / `MODULES:END`.
 
-```js
-/* <<< MODULES >>> */
-```
+**Committa solo il tuo `modules/<nome>.js`.** Le modifiche a `index.html` prodotte dal
+build servono solo a te per provare: lasciale fuori dal commit, l'integrazione la fa
+il coordinatore con un unico build finale.
 
-Non modificare nessun'altra riga del file: né `MAP`, né `SOLID`, né `talk()`,
+Non modificare nessun'altra riga del gioco: né `MAP`, né `SOLID`, né `talk()`,
 né `update()`, `draw()`, `drawDiario()`, `finishMove()`. Servono a far convivere
 i moduli scritti in parallelo. Se ti sembra di aver bisogno di toccarli, non ti serve:
 usa i registri qui sotto.
@@ -93,6 +95,7 @@ accentate né caratteri speciali** nei dialoghi: il file scrive `e'`, `piu'`, `p
 
 ```sh
 npm i -D playwright            # se non già presente
+node tools/build.mjs           # inietta il tuo modulo in index.html
 node tools/smoke.mjs --ms 1000
 node tools/smoke.mjs --eval "prologue=true; player.x=<x>; player.y=<y>" --keys "z" --ms 800 --shot /tmp/x.png
 ```
