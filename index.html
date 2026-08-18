@@ -199,9 +199,29 @@ const CREWDEF = {
 };
 const CHARS = Object.keys(CREWDEF).map(id=>{
   const d=CREWDEF[id];
-  return {id, name:d.name, col:d.col, x:d.x, y:d.y, dir:"down", spr:makeCharSet(d.cm)};
+  return {id, name:d.name, col:d.col, x:d.x, y:d.y, hx:d.x, hy:d.y, dir:"down", spr:makeCharSet(d.cm)};
 });
 const charAt=(x,y)=>CHARS.find(c=>c.x===x&&c.y===y);
+const BASE_CREW = Object.keys(CREWDEF);
+
+/* ---------- REGISTRI DI ESTENSIONE ----------
+   I moduli in fondo al file si agganciano qui, senza toccare il core. */
+const TALK_HANDLERS = {};   // id personaggio -> fn(char, stato)
+const MINIGAMES     = {};   // nome modalita'  -> {update(), draw()}
+const MAP_HOOKS     = [];   // fn(x,y)        -> a ogni casella raggiunta
+const DRAW_HOOKS    = [];   // fn(camX,camY)  -> disegna sopra la mappa
+const STAT_LINES    = [];   // fn() -> stringa per la pagina 2 del diario
+function registerTalk(id,fn){ TALK_HANDLERS[id]=fn; }
+function registerMinigame(name,o){ MINIGAMES[name]=o; }
+function onStep(fn){ MAP_HOOKS.push(fn); }
+function onDrawMap(fn){ DRAW_HOOKS.push(fn); }
+function addStatLine(fn){ STAT_LINES.push(fn); }
+function addCrew(id,def){
+  CREWDEF[id]=def;
+  if(crew[id]===undefined) crew[id]=(saved&&saved.crew&&saved.crew[id])|0;
+  CHARS.push({id, name:def.name, col:def.col, x:def.x, y:def.y,
+              hx:def.x, hy:def.y, dir:"down", spr:makeCharSet(def.cm)});
+}
 
 /* ---------- LA MAPPA (Monzoro di notte, verificata) ---------- */
 const MAP = [
@@ -225,23 +245,23 @@ const MAP = [
 "T....................rrrrrrr...RRRR........RRRR....T",
 "T.............ww.....rrrrrrr...RRRR..RRRR..RRRR....T",
 "T.............ww.....WWWpWWW...WWWW..RRRR..WWWW....T",
-"T..ttt........dd........p...........lWWWW.b........T",
-"T..ttt........ww........pppplppppppppppppppppppppp.T",
-"T..ttt........ww..............p.............l......T",
-"T.............ww..............p..RRRR.b............T",
+"T..ttt...GGGGGdd........p...........lWWWW.b........T",
+"T..ttt...GGGGGww........pppplppppppppppppppppppppp.T",
+"T..ttt...GGGGGww..............p.............l......T",
+"T........GGGGGww..............p..RRRR.b............T",
 "T.............ww..............p..RRRR...RRRR...b...T",
 "T.........l...ww.............lp..WWWW...RRRR.......T",
 "T....ddddddd.dddddddddddddddddd.........WWWW.......T",
-"T.......b.....................p.fffffffffb.........T",
-"T.............................p..gggggggf..........T",
-"T....................ttt......p.fgggggggf..........T",
+"T.......b.......GGGGG.........p.fffffffffb.........T",
+"T...............GGGGG.........p..gggggggf..........T",
+"T...............GGGGGttt......p.fgggggggf..........T",
 "T....................ttt......p.fgggggggf..........T",
 "T...TTTTTTTT.TTTTTTTT.........plfgggggggf..........T",
 "T...TTTTTTTT.TTTTTTTT.........p.fffffffff..........T",
-"T...TTTTTTTT.TTTTTTTT.......b.p....................T",
-"T...TT............TTT.........x.....ttt............T",
-"T...TTTTTTTTTTTTTTTTT........RRR....ttt............T",
-"T...TTTTTTTTTTTTTTTTT......RRRpRRR.................T",
+"T...TTTTTTTT.TTTTTTTT.......b.p.............GGGGG..T",
+"T...TT............TTT.........x.....ttt.....GGGGG..T",
+"T...TTTTTTTTTTTTTTTTT........RRR....ttt.....GGGGG..T",
+"T...TTTTTTTTTTTTTTTTT......RRRpRRR..........GGGGG..T",
 "T...TTTTTTTTTTTTTTTTT......ccccccc.................T",
 "T...TTTTTTTTTTTTTTTTT......ccccccc.................T",
 "T...TTTTTTTTTTTTTTTTT.........p....................T",
@@ -306,8 +326,10 @@ function loadSave(){
 function doSave(){
   try{ localStorage.setItem("monzoro-save", JSON.stringify({
     crew, prologue, finalDone, tags, caps, bars, crates, words,
-    sciarpa, ringIdx, respect, x:player.x, y:player.y })); }catch(e){}
+    sciarpa, ringIdx, respect, ext:EXT, x:player.x, y:player.y })); }catch(e){}
 }
+/* stato libero dei moduli: ogni modulo si prende la sua chiave in EXT */
+let EXT = {};
 
 const TS=16, VW=160, VH=144;
 const player = { x:24, y:22, dir:"up", ox:0, oy:0, moving:false, step:0, animT:0 };
@@ -319,6 +341,7 @@ if(saved){
   crates=saved.crates||[]; words=saved.words||[];
   sciarpa=!!saved.sciarpa; ringIdx=saved.ringIdx|0; respect=saved.respect|0;
   if(!SOLID.has(tileAt(saved.x,saved.y)) && !charAt(saved.x,saved.y)){ player.x=saved.x; player.y=saved.y; }
+  EXT = saved.ext || {};
 }
 
 const keys={up:false,down:false,left:false,right:false};
@@ -327,6 +350,7 @@ let dialog=null, scene=null;
 let tick=0, aPressed=false, bPressed=false, dirTapped=null;
 let toastMsg=null, toastT=0;
 let mini=null;
+let diarioPage=0;
 const DIRV={up:[0,-1],down:[0,1],left:[-1,0],right:[1,0]};
 
 function toast(m){ toastMsg=m; toastT=150; sfx.pick(); }
@@ -442,6 +466,11 @@ const TILES = {
   "s": makeTile(g=>{ nightGrass(g);
       px(g,"#2c3136",2,2,12,8); px(g,"#ccff33",3,3,10,1);
       px(g,"#8fa89a",4,6,8,1); px(g,"#3a3a42",7,10,2,5); }),
+  "G": makeTile((g,f)=>{ px(g,"#1e3a22",0,0,16,16);
+      g.fillStyle="#2f6a3a";
+      for(let i=0;i<8;i++){ const x=i*2+(f?1:0), hh=10+(i%3)*2;
+        g.fillRect(x,16-hh,1,hh); }
+      px(g,"#47a055",0,0,16,1); px(g,"#152a19",0,15,16,1); }),
   "b": makeTile(g=>{ px(g,"#55565c",0,0,16,16);
       px(g,"#45464c",0,5,16,1); px(g,"#45464c",0,10,16,1);
       px(g,"#45464c",5,0,1,5); px(g,"#45464c",10,6,1,4);
@@ -728,6 +757,7 @@ function talk(c){
     return;
   }
   if(!prologue){ openDialog([c.name+": Prima passa","da MARRO al Mericco.","Ha quella faccia da","piano troppo grande."]); return; }
+  if(TALK_HANDLERS[id]){ TALK_HANDLERS[id](c, st); return; }
   if(id==="polli"){
     if(st===0){
       playScene([
@@ -895,6 +925,7 @@ function finishMove(){
       } else toast("ANELLO "+ringIdx+"/8 - AVANTI!");
     }
   }
+  MAP_HOOKS.forEach(f=>f(X,Y));
   doSave();
 }
 function updateMap(){
@@ -988,6 +1019,7 @@ function drawMap(){
   });
   const frame = player.moving ? Math.floor(player.animT/6)%4 : 0;
   ctx.drawImage(SPR[player.dir][frame], player.x*TS+player.ox-camX, player.y*TS+player.oy-camY-2);
+  DRAW_HOOKS.forEach(f=>f(camX,camY));
   // HUD respect
   ctx.fillStyle="rgba(14,18,16,.85)"; ctx.fillRect(2,2,52,12);
   ctx.strokeStyle="#ccff33"; ctx.lineWidth=1; ctx.strokeRect(2.5,2.5,51,11);
@@ -1012,26 +1044,34 @@ function textBox(lines){
 function drawDiario(){
   ctx.fillStyle="#0d1512"; ctx.fillRect(0,0,VW,VH);
   ctx.fillStyle="#ccff33"; ctx.font="bold 10px 'Courier New',monospace"; ctx.textBaseline="top";
-  ctx.fillText("LA CREW - RSP "+respect,8,4);
+  ctx.fillText(diarioPage===0?"LA CREW - RSP "+respect:"IL GIRO - RSP "+respect,8,4);
   ctx.fillStyle="#3a4a42"; ctx.fillRect(0,16,VW,1);
-  const order=["marro","polli","bisi","dani","luchino","lollo","cino"];
-  order.forEach((k,i)=>{
-    const y=20+i*12, d=CREWDEF[k];
-    const st = k==="marro" ? (finalDone?2:(prologue?1:0)) : crew[k];
-    ctx.fillStyle=d.col; ctx.fillRect(6,y+2,6,6);
-    ctx.fillStyle="#e8e4d8"; ctx.font="bold 8px 'Courier New',monospace";
-    ctx.fillText(d.name, 16, y+1);
-    ctx.fillStyle = st>=2?"#ccff33":(st===1?"#ffd15a":"#5a6660");
-    ctx.fillText(st>=2?"FATTO":(st===1?"IN CORSO":"DA TROVARE"), 78, y+1);
-  });
+  ctx.font="bold 8px 'Courier New',monospace";
+  if(diarioPage===0){
+    const order=BASE_CREW.concat(Object.keys(CREWDEF).filter(k=>!BASE_CREW.includes(k)));
+    order.forEach((k,i)=>{
+      const y=19+i*10, d=CREWDEF[k];
+      const st = k==="marro" ? (finalDone?2:(prologue?1:0)) : crew[k];
+      ctx.fillStyle=d.col; ctx.fillRect(6,y+2,6,5);
+      ctx.fillStyle="#e8e4d8"; ctx.fillText(d.name, 16, y);
+      ctx.fillStyle = st>=2?"#ccff33":(st===1?"#ffd15a":"#5a6660");
+      ctx.fillText(st>=2?"FATTO":(st===1?"IN CORSO":"DA TROVARE"), 84, y);
+    });
+  } else {
+    let y=22;
+    ctx.fillStyle="#8fa89a";
+    ctx.fillText("MURI  "+tags.length+"/8", 8, y); y+=11;
+    ctx.fillText("TAPPI "+caps.length+"/"+TAPPI.length, 8, y); y+=11;
+    ctx.fillText("BARRE "+bars.length+"/"+BARRE.length, 8, y); y+=11;
+    STAT_LINES.forEach(f=>{ const t=f&&f(); if(t){ ctx.fillText(t, 8, y); y+=11; } });
+    const mi=missione();
+    y=Math.max(y+4,96);
+    ctx.fillStyle="#ffd15a";
+    ctx.fillText("\u00bb "+mi[0], 8, y);
+    ctx.fillText("  "+mi[1], 8, y+10);
+  }
   ctx.fillStyle="#8fa89a";
-  ctx.fillText("MURI "+tags.length+"/8  TAPPI "+caps.length+"/"+TAPPI.length+"  BARRE "+bars.length+"/"+BARRE.length, 6, 108);
-  const mi=missione();
-  ctx.fillStyle="#ffd15a";
-  ctx.fillText("» "+mi[0], 6, 120);
-  ctx.fillText("  "+mi[1], 6, 129);
-  ctx.fillStyle="#8fa89a";
-  ctx.fillText("A/B: torna alla notte", 6, VH-6-0);
+  ctx.fillText("\u25c0\u25b6 pagina   A/B: esci", 8, 134);
 }
 function drawEnding(){
   const grad=ctx.createLinearGradient(0,0,0,VH);
@@ -1065,9 +1105,15 @@ function draw(){
   if(mode==="quiz"){ drawQuiz(); return; }
   if(mode==="diario"){ drawDiario(); return; }
   if(mode==="ending"){ drawEnding(); return; }
+  if(MINIGAMES[mode]){ MINIGAMES[mode].draw(); return; }
   drawMap();
   if(mode==="dialog") textBox(dialog.lines);
 }
+
+/* ==========================================================
+   MODULI  -  ogni feature si registra qui sotto, in autonomia.
+   ========================================================== */
+/* <<< MODULES >>> */
 
 /* ---------- LOOP ---------- */
 function update(){
@@ -1087,8 +1133,12 @@ function update(){
   else if(mode==="timing") updateTiming();
   else if(mode==="arrows") updateArrows();
   else if(mode==="quiz") updateQuiz();
-  else if(mode==="diario"){ if(aPressed||bPressed){ sfx.b(); mode="map"; } }
+  else if(mode==="diario"){
+    if(dirTapped==="left"||dirTapped==="right"){ diarioPage=1-diarioPage; sfx.b(); }
+    if(aPressed||bPressed){ sfx.b(); mode="map"; }
+  }
   else if(mode==="ending"){ if(aPressed||bPressed){ sfx.b(); mode="map"; } }
+  else if(MINIGAMES[mode]) MINIGAMES[mode].update();
   aPressed=false; bPressed=false; dirTapped=null;
   draw();
   requestAnimationFrame(update);
