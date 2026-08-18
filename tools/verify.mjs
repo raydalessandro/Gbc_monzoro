@@ -92,21 +92,40 @@ for (const c of reg.chars) {
   if (nuovi.length) fail.push(`parlando con ${c.id}: ${nuovi.join(' | ')}`);
 }
 
-/* ---- 4. una passeggiata nell'erba alta ---- */
+/* ---- 4. una passeggiata vera nell'erba alta ----
+   Il motore si muove solo su tasto TENUTO (heldDir legge `keys`), quindi
+   keyboard.press() farebbe un passo solo: qui si tiene premuto davvero. */
 {
   const before = errors.length;
   await page.evaluate(() => {
     mode = 'map'; dialog = null; mini = null; prologue = true;
     player.x = 10; player.y = 20; player.moving = false;
   });
-  for (let i = 0; i < 40; i++) {
-    await page.keyboard.press(i % 2 ? 'ArrowDown' : 'ArrowUp');
+  let passi = 0, incontri = 0;
+  for (let i = 0; i < 30 && passi < 120; i++) {
+    const dir = i % 2 ? 'ArrowDown' : 'ArrowUp';
+    await page.keyboard.down(dir);
+    await page.waitForTimeout(400);
+    await page.keyboard.up(dir);
     await page.waitForTimeout(60);
-    await page.keyboard.press('z');
+    const st = await page.evaluate(() => ({ m: mode, x: player.x, y: player.y }));
+    passi += 1;
+    if (st.m !== 'map') {
+      incontri++;
+      if (shotsDir && incontri === 1) await page.screenshot({ path: path.join(shotsDir, 'erba-incontro.png') });
+      // esci dallo scontro pigiando i tasti
+      // certe battaglie sono lunghe (creature che resistono alla mossa base): sii paziente
+      for (let k = 0; k < 250 && (await page.evaluate(() => mode)) !== 'map'; k++) {
+        await page.keyboard.press(k % 5 === 4 ? 'ArrowDown' : 'z');
+        await page.waitForTimeout(45);
+      }
+      if ((await page.evaluate(() => mode)) !== 'map')
+        fail.push('battaglia nell erba: non si torna alla mappa');
+      await page.evaluate(() => { player.x = 10; player.y = 20; });
+    }
   }
-  await page.waitForTimeout(300);
-  const m = await page.evaluate(() => mode);
-  note(`  erba alta -> mode=${m} ${errors.length > before ? 'ERRORI' : 'ok'}`);
+  note(`  erba alta -> ${incontri} incontri in ~${passi} tratti ${errors.length > before ? 'ERRORI' : 'ok'}`);
+  if (!incontri) fail.push('nessun incontro nell erba alta: l aggancio onStep non scatta?');
   if (errors.length > before) fail.push('nell erba alta: ' + errors.slice(before).join(' | '));
   if (shotsDir) await page.screenshot({ path: path.join(shotsDir, 'erba.png') });
 }
